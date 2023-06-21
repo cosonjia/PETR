@@ -113,6 +113,7 @@ PETR: We provide some results on nuScenes **val set** with pretrained models. Th
 | PETR-vov-p4-1600x640 | 40.40%     | 45.5%    | 36hours   | [config](projects/configs/petr/petr_vovnet_gridmask_p4_1600x640.py)   |   [log](https://drive.google.com/file/d/1XfO5fb_Nd6jhQ3foBUG7WCz0SlTlBKu8/view?usp=sharing) / [gdrive](https://drive.google.com/file/d/1SV0_n0PhIraEXHJ1jIdMu3iMg9YZsm8c/view?usp=sharing)  
 
 PETRv2: We provide a 3D object detection baseline and a BEV segmentation baseline with two frames. The model is trained on 8x 2080ti **without cbgs**. The processed [info files](https://drive.google.com/drive/folders/1_C2yuh51ROF3UzId4L1itwGQVUeVUxU6?usp=sharing) contain 30 previous frames, whose transformation matrix is aligned with the current frame.  The info files, models and logs are also available at [Baidu Netdisk](https://pan.baidu.com/s/10IaWAq1mljX5ztLzQT_4Kg) with code `petr`.
+
 | config            | mAP      | NDS     |training    |   config |   download |
 |:--------:|:----------:|:---------:|:--------:|:--------:|:-------------:|
 | PETRv2-vov-p4-800x320   | 41.0%     | 50.3%    | 30hours  | [config](projects/configs/petrv2/petrv2_vovnet_gridmask_p4_800x320.py)  | [log](https://drive.google.com/file/d/1QcVSDHoUAcFLqziwZrBn5A2oAjH86WiO/view?usp=sharing) / [gdrive](https://drive.google.com/file/d/1tv_D8Ahp9tz5n4pFp4a64k-IrUZPu5Im/view?usp=sharing)    
@@ -127,6 +128,7 @@ PETRv2: We provide a 3D object detection baseline and a BEV segmentation baselin
 | PETRv2_3DLane  | 61.2%     | 0.400   | 0.573     |0.265     |0.413    | V2-99  |  | |
 
 StreamPETR: Stream-PETR achieves significant performance improvements without introducing extra computation cost, compared to the single-frame baseline.
+
 | config            | mAP      | NDS     |FPS-Pytorch    |   config |   download |
 |:--------:|:----------:|:---------:|:--------:|:--------:|:-------------:|
 | StreamPETR-r50-704x256   | 45.0%     | 55.0%    | 31.7/s  | |  
