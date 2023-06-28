@@ -1,0 +1,1 @@
+python tools/visualize.py  -out work_dirs/vss/PETR-vov-p4-800x320-nus/  --result-json work_dirs/PETR-vov-p4-800x320-nus/results_eval/results_nusc.json

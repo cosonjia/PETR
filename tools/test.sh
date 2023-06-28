@@ -1,0 +1,4 @@
+python tools/test.py projects/configs/petr/petr_r50dcn_gridmask_c5.py         ckpts/PETR-r50-c5-1408x512.pth  --out work_dirs/pp-nus/results_eval.pkl --format-only --eval-options 'jsonfile_prefix=work_dirs/pp-nus/results_eval'
+python tools/test.py projects/configs/petr/petr_vovnet_gridmask_p4_800x320.py ckpts/PETR-vov-p4-800x320.pth   --out work_dirs/PETR-vov-p4-800x320-nus/results_eval.pkl --format-only --eval-options 'jsonfile_prefix=work_dirs/PETR-vov-p4-800x320-nus/results_eval'
+python tools/test.py projects/configs/petrv2/petrv2_vovnet_gridmask_p4_800x320.py ckpts/PETRv2-vov-p4-800x320.pth   --out work_dirs/PETRv2-vov-p4-800x320-nus/results_eval.pkl --format-only --eval-options 'jsonfile_prefix=work_dirs/PETRv2-vov-p4-800x320-nus/results_eval'
+python tools/test.py projects/configs/petrv2/petrv2_vovnet_gridmask_p4_800x320.py ckpts/PETRv2-vov-p4-800x320.pth   --out work_dirs/PETRv2-vov-p4-800x320-nus/results_eval.pkl --eval bbox
