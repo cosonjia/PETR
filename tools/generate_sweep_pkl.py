@@ -11,10 +11,10 @@ import os
 import mmcv
 import tqdm
 sensors = ['CAM_FRONT', 'CAM_FRONT_RIGHT', 'CAM_BACK_RIGHT', 'CAM_BACK', 'CAM_BACK_LEFT', 'CAM_FRONT_LEFT']
-info_prefix = 'train'
-# info_prefix = 'val'
+# info_prefix = 'train'
+info_prefix = 'val'
 # info_prefix = 'test'
-data_root = "/data/Dataset/nuScenes/"
+data_root = "/mnt/datasets/nuScenes/"
 num_prev = 5  ###nummber of previous key frames
 num_sweep = 5  ###nummber of sweep frames between two key frame
 
@@ -24,7 +24,7 @@ key_infos = pickle.load(open(os.path.join(data_root,'nuscenes_infos_{}.pkl'.form
 if info_prefix == 'test':
     nuscenes_version = 'v1.0-test'
 else:
-    nuscenes_version = 'v1.0-trainval'
+    nuscenes_version = 'v1.0-mini'
 nuscenes = NuScenes(nuscenes_version, data_root)
 
 def add_frame(sample_data, e2g_t, l2e_t, l2e_r_mat, e2g_r_mat):
