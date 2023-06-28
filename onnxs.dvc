@@ -1,0 +1,5 @@
+outs:
+- md5: f241a9abb770ad8bd5e51ce090bc69d4.dir
+  size: 2742289722
+  nfiles: 11
+  path: onnxs

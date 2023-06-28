@@ -1,0 +1,6 @@
+[core]
+    remote = evas-model-remote
+['remote "evas-model-remote"']
+    url = ssh://anna@dvc/home/anna/EVASModels
+    ask_password = true
+

@@ -115,7 +115,6 @@ data
 *.pkl.json
 *.log.json
 work_dirs/
-ckpts/
 data/
 mmdetection3d/
 exps/
@@ -123,7 +122,7 @@ exps/
 mmdet3d/.mim
 
 # Pytorch
-*.pth
+
 
 # demo
 *.jpg
@@ -135,3 +134,5 @@ data/sunrgbd/OFFICIAL_SUNRGBD/
 onnxs/
 # Waymo evaluation
 mmdet3d/core/evaluation/waymo_utils/compute_detection_metrics_main
+/ckpts
+/onnxs
