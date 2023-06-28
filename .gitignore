@@ -132,6 +132,6 @@ data/scannet/scans/
 data/sunrgbd/OFFICIAL_SUNRGBD/
 *.obj
 *.ply
-
+onnxs/
 # Waymo evaluation
 mmdet3d/core/evaluation/waymo_utils/compute_detection_metrics_main
