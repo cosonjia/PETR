@@ -7,25 +7,27 @@
 # Modified from mmdetection3d (https://github.com/open-mmlab/mmdetection3d)
 # Copyright (c) OpenMMLab. All rights reserved.
 # ------------------------------------------------------------------------
+import math
+
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from mmcv.cnn import Conv2d, Linear, build_activation_layer, bias_init_with_prob
-from mmcv.cnn.bricks.transformer import FFN, build_positional_encoding
+from mmcv.cnn import Conv2d, Linear, bias_init_with_prob
+from mmcv.cnn.bricks.transformer import build_positional_encoding
 from mmcv.runner import force_fp32
-from mmdet.core import (bbox_cxcywh_to_xyxy, bbox_xyxy_to_cxcywh,
-                        build_assigner, build_sampler, multi_apply,
+from mmdet.core import (build_assigner, build_sampler, multi_apply,
                         reduce_mean)
-from mmdet.models.utils import build_transformer
 from mmdet.models import HEADS, build_loss
 from mmdet.models.dense_heads.anchor_free_head import AnchorFreeHead
+from mmdet.models.utils import NormedLinear
+from mmdet.models.utils import build_transformer
 from mmdet.models.utils.transformer import inverse_sigmoid
 from mmdet3d.core.bbox.coders import build_bbox_coder
+
 from projects.mmdet3d_plugin.core.bbox.util import normalize_bbox
-import numpy as np
-from mmcv.cnn import xavier_init, constant_init, kaiming_init
-import math
-from mmdet.models.utils import NormedLinear
+
+
 def pos2posemb3d(pos, num_pos_feats=128, temperature=10000):
     scale = 2 * math.pi
     pos = pos * scale
@@ -39,6 +41,7 @@ def pos2posemb3d(pos, num_pos_feats=128, temperature=10000):
     pos_z = torch.stack((pos_z[..., 0::2].sin(), pos_z[..., 1::2].cos()), dim=-1).flatten(-2)
     posemb = torch.cat((pos_y, pos_x, pos_z), dim=-1)
     return posemb
+
 
 @HEADS.register_module()
 class PETRHead(AnchorFreeHead):
@@ -71,6 +74,7 @@ class PETRHead(AnchorFreeHead):
             Default: None
     """
     _version = 2
+
     def __init__(self,
                  num_classes,
                  in_channels,
@@ -105,7 +109,7 @@ class PETRHead(AnchorFreeHead):
                  depth_step=0.8,
                  depth_num=64,
                  LID=False,
-                 depth_start = 1,
+                 depth_start=1,
                  position_range=[-65, -65, -8.0, 65, 65, 8.0],
                  init_cfg=None,
                  normedlinear=False,
@@ -127,14 +131,14 @@ class PETRHead(AnchorFreeHead):
         class_weight = loss_cls.get('class_weight', None)
         if class_weight is not None and (self.__class__ is PETRHead):
             assert isinstance(class_weight, float), 'Expected ' \
-                'class_weight to have type float. Found ' \
-                f'{type(class_weight)}.'
+                                                    'class_weight to have type float. Found ' \
+                                                    f'{type(class_weight)}.'
             # NOTE following the official DETR rep0, bg_cls_weight means
             # relative classification weight of the no-object class.
             bg_cls_weight = loss_cls.get('bg_cls_weight', class_weight)
             assert isinstance(bg_cls_weight, float), 'Expected ' \
-                'bg_cls_weight to have type float. Found ' \
-                f'{type(bg_cls_weight)}.'
+                                                     'bg_cls_weight to have type float. Found ' \
+                                                     f'{type(bg_cls_weight)}.'
             class_weight = torch.ones(num_classes + 1) * class_weight
             # set background class as the last indice
             class_weight[num_classes] = bg_cls_weight
@@ -144,15 +148,15 @@ class PETRHead(AnchorFreeHead):
             self.bg_cls_weight = bg_cls_weight
 
         if train_cfg:
-            assert 'assigner' in train_cfg, 'assigner should be provided '\
-                'when train_cfg is set.'
+            assert 'assigner' in train_cfg, 'assigner should be provided ' \
+                                            'when train_cfg is set.'
             assigner = train_cfg['assigner']
             assert loss_cls['loss_weight'] == assigner['cls_cost']['weight'], \
                 'The classification weight for loss and matcher should be' \
                 'exactly the same.'
             assert loss_bbox['loss_weight'] == assigner['reg_cost'][
                 'weight'], 'The regression L1 weight for loss and matcher ' \
-                'should be exactly the same.'
+                           'should be exactly the same.'
             # assert loss_iou['loss_weight'] == assigner['iou_cost']['weight'], \
             #     'The regression iou weight for loss and matcher should be' \
             #     'exactly the same.'
@@ -181,13 +185,13 @@ class PETRHead(AnchorFreeHead):
         assert 'num_feats' in positional_encoding
         num_feats = positional_encoding['num_feats']
         assert num_feats * 2 == self.embed_dims, 'embed_dims should' \
-            f' be exactly 2 times of num_feats. Found {self.embed_dims}' \
-            f' and {num_feats}.'
+                                                 f' be exactly 2 times of num_feats. Found {self.embed_dims}' \
+                                                 f' and {num_feats}.'
         self.act_cfg = transformer.get('act_cfg',
                                        dict(type='ReLU', inplace=True))
         self.num_pred = 6
         self.normedlinear = normedlinear
-        super(PETRHead, self).__init__(num_classes, in_channels, init_cfg = init_cfg)
+        super(PETRHead, self).__init__(num_classes, in_channels, init_cfg=init_cfg)
 
         self.loss_cls = build_loss(loss_cls)
         self.loss_bbox = build_loss(loss_bbox)
@@ -202,13 +206,15 @@ class PETRHead(AnchorFreeHead):
         #     self.positional_encoding = build_positional_encoding(
         #         positional_encoding)
         self.positional_encoding = build_positional_encoding(
-                positional_encoding)
+            positional_encoding)
         self.transformer = build_transformer(transformer)
         self.code_weights = nn.Parameter(torch.tensor(
             self.code_weights, requires_grad=False), requires_grad=False)
         self.bbox_coder = build_bbox_coder(bbox_coder)
         self.pc_range = self.bbox_coder.pc_range
         self._init_layers()
+        # self.sin_embed = nn.Parameter(torch.load('sin_embed.pt'), requires_grad=False).to(torch.float32)
+        # self.sin_embed = torch.load('sin_embed.pt')#.to(torch.float32) #.to('cuda:0')
 
     def _init_layers(self):
         """Initialize layers of the transformer head."""
@@ -244,9 +250,9 @@ class PETRHead(AnchorFreeHead):
 
         if self.with_multiview:
             self.adapt_pos3d = nn.Sequential(
-                nn.Conv2d(self.embed_dims*3//2, self.embed_dims*4, kernel_size=1, stride=1, padding=0),
+                nn.Conv2d(self.embed_dims * 3 // 2, self.embed_dims * 4, kernel_size=1, stride=1, padding=0),
                 nn.ReLU(),
-                nn.Conv2d(self.embed_dims*4, self.embed_dims, kernel_size=1, stride=1, padding=0),
+                nn.Conv2d(self.embed_dims * 4, self.embed_dims, kernel_size=1, stride=1, padding=0),
             )
         else:
             self.adapt_pos3d = nn.Sequential(
@@ -257,14 +263,14 @@ class PETRHead(AnchorFreeHead):
 
         if self.with_position:
             self.position_encoder = nn.Sequential(
-                nn.Conv2d(self.position_dim, self.embed_dims*4, kernel_size=1, stride=1, padding=0),
+                nn.Conv2d(self.position_dim, self.embed_dims * 4, kernel_size=1, stride=1, padding=0),
                 nn.ReLU(),
-                nn.Conv2d(self.embed_dims*4, self.embed_dims, kernel_size=1, stride=1, padding=0),
+                nn.Conv2d(self.embed_dims * 4, self.embed_dims, kernel_size=1, stride=1, padding=0),
             )
 
         self.reference_points = nn.Embedding(self.num_query, 3)
         self.query_embedding = nn.Sequential(
-            nn.Linear(self.embed_dims*3//2, self.embed_dims),
+            nn.Linear(self.embed_dims * 3 // 2, self.embed_dims),
             nn.ReLU(),
             nn.Linear(self.embed_dims, self.embed_dims),
         )
@@ -287,19 +293,19 @@ class PETRHead(AnchorFreeHead):
         coords_w = torch.arange(W, device=img_feats[0].device).float() * pad_w / W
 
         if self.LID:
-            index  = torch.arange(start=0, end=self.depth_num, step=1, device=img_feats[0].device).float()
+            index = torch.arange(start=0, end=self.depth_num, step=1, device=img_feats[0].device).float()
             index_1 = index + 1
             bin_size = (self.position_range[3] - self.depth_start) / (self.depth_num * (1 + self.depth_num))
             coords_d = self.depth_start + bin_size * index * index_1
         else:
-            index  = torch.arange(start=0, end=self.depth_num, step=1, device=img_feats[0].device).float()
+            index = torch.arange(start=0, end=self.depth_num, step=1, device=img_feats[0].device).float()
             bin_size = (self.position_range[3] - self.depth_start) / self.depth_num
             coords_d = self.depth_start + bin_size * index
 
         D = coords_d.shape[0]
-        coords = torch.stack(torch.meshgrid([coords_w, coords_h, coords_d])).permute(1, 2, 3, 0) # W, H, D, 3
+        coords = torch.stack(torch.meshgrid([coords_w, coords_h, coords_d])).permute(1, 2, 3, 0)  # W, H, D, 3
         coords = torch.cat((coords, torch.ones_like(coords[..., :1])), -1)
-        coords[..., :2] = coords[..., :2] * torch.maximum(coords[..., 2:3], torch.ones_like(coords[..., 2:3])*eps)
+        coords[..., :2] = coords[..., :2] * torch.maximum(coords[..., 2:3], torch.ones_like(coords[..., 2:3]) * eps)
 
         img2lidars = []
         for img_meta in img_metas:
@@ -307,23 +313,27 @@ class PETRHead(AnchorFreeHead):
             for i in range(len(img_meta['lidar2img'])):
                 img2lidar.append(np.linalg.inv(img_meta['lidar2img'][i]))
             img2lidars.append(np.asarray(img2lidar))
+
         img2lidars = np.asarray(img2lidars)
-        img2lidars = coords.new_tensor(img2lidars) # (B, N, 4, 4)
+        img2lidars = coords.new_tensor(img2lidars)  # (B, N, 4, 4)
 
         coords = coords.view(1, 1, W, H, D, 4, 1).repeat(B, N, 1, 1, 1, 1, 1)
         img2lidars = img2lidars.view(B, N, 1, 1, 1, 4, 4).repeat(1, 1, W, H, D, 1, 1)
         coords3d = torch.matmul(img2lidars, coords).squeeze(-1)[..., :3]
-        coords3d[..., 0:1] = (coords3d[..., 0:1] - self.position_range[0]) / (self.position_range[3] - self.position_range[0])
-        coords3d[..., 1:2] = (coords3d[..., 1:2] - self.position_range[1]) / (self.position_range[4] - self.position_range[1])
-        coords3d[..., 2:3] = (coords3d[..., 2:3] - self.position_range[2]) / (self.position_range[5] - self.position_range[2])
+        coords3d[..., 0:1] = (coords3d[..., 0:1] - self.position_range[0]) / (
+                self.position_range[3] - self.position_range[0])
+        coords3d[..., 1:2] = (coords3d[..., 1:2] - self.position_range[1]) / (
+                self.position_range[4] - self.position_range[1])
+        coords3d[..., 2:3] = (coords3d[..., 2:3] - self.position_range[2]) / (
+                self.position_range[5] - self.position_range[2])
 
-        coords_mask = (coords3d > 1.0) | (coords3d < 0.0) 
+        coords_mask = (coords3d > 1.0) | (coords3d < 0.0)
         coords_mask = coords_mask.flatten(-2).sum(-1) > (D * 0.5)
         coords_mask = masks | coords_mask.permute(0, 1, 3, 2)
-        coords3d = coords3d.permute(0, 1, 4, 5, 3, 2).contiguous().view(B*N, -1, H, W)
+        coords3d = coords3d.permute(0, 1, 4, 5, 3, 2).contiguous().view(B * N, -1, H, W)
         coords3d = inverse_sigmoid(coords3d)
         coords_position_embeding = self.position_encoder(coords3d)
-        
+
         return coords_position_embeding.view(B, N, self.embed_dims, H, W), coords_mask
 
     def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict,
@@ -355,7 +365,7 @@ class PETRHead(AnchorFreeHead):
               self)._load_from_state_dict(state_dict, prefix, local_metadata,
                                           strict, missing_keys,
                                           unexpected_keys, error_msgs)
-    
+
     def forward(self, mlvl_feats, img_metas):
         """Forward function.
         Args:
@@ -370,7 +380,7 @@ class PETRHead(AnchorFreeHead):
                 head with normalized coordinate format (cx, cy, w, l, cz, h, theta, vx, vy). \
                 Shape [nb_dec, bs, num_query, 9].
         """
-        
+
         x = mlvl_feats[0]
         batch_size, num_cams = x.size(0), x.size(1)
         input_img_h, input_img_w, _ = img_metas[0]['pad_shape'][0]
@@ -378,9 +388,9 @@ class PETRHead(AnchorFreeHead):
             (batch_size, num_cams, input_img_h, input_img_w))
         for img_id in range(batch_size):
             for cam_id in range(num_cams):
-                img_h, img_w, _ = img_metas[img_id]['img_shape'][cam_id]
+                img_h, img_w, _ = img_metas[img_id]['img_shape'][cam_id]  # 320, 800
                 masks[img_id, cam_id, :img_h, :img_w] = 0
-        x = self.input_proj(x.flatten(0,1))
+        x = self.input_proj(x.flatten(0, 1))
         x = x.view(batch_size, num_cams, *x.shape[-3:])
         # interpolate masks to have the same spatial shape with x
         masks = F.interpolate(
@@ -392,6 +402,8 @@ class PETRHead(AnchorFreeHead):
             if self.with_multiview:
                 sin_embed = self.positional_encoding(masks)
                 sin_embed = self.adapt_pos3d(sin_embed.flatten(0, 1)).view(x.size())
+                # torch.save(sin_embed, 'sin_embed.pt')
+                # sin_embed = torch.load('sin_embed.pt')
                 pos_embed = pos_embed + sin_embed
             else:
                 pos_embeds = []
@@ -414,7 +426,7 @@ class PETRHead(AnchorFreeHead):
 
         reference_points = self.reference_points.weight
         query_embeds = self.query_embedding(pos2posemb3d(reference_points))
-        reference_points = reference_points.unsqueeze(0).repeat(batch_size, 1, 1) #.sigmoid()
+        reference_points = reference_points.unsqueeze(0).repeat(batch_size, 1, 1)  # .sigmoid()
 
         outs_dec, _ = self.transformer(x, masks, query_embeds, pos_embed, self.reg_branches)
         outs_dec = torch.nan_to_num(outs_dec)
@@ -446,9 +458,96 @@ class PETRHead(AnchorFreeHead):
             'all_cls_scores': all_cls_scores,
             'all_bbox_preds': all_bbox_preds,
             'enc_cls_scores': None,
-            'enc_bbox_preds': None, 
+            'enc_bbox_preds': None,
         }
         return outs
+
+    def forward_export(self, mlvl_feats, pos_embed=None, input_shape=None):
+        """Forward function.
+        Args:
+            mlvl_feats (tuple[Tensor]): Features from the upstream
+                network, each is a 5D-tensor with shape
+                (B, N, C, H, W).
+        Returns:
+            all_cls_scores (Tensor): Outputs from the classification head, \
+                shape [nb_dec, bs, num_query, cls_out_channels]. Note \
+                cls_out_channels should includes background.
+            all_bbox_preds (Tensor): Sigmoid outputs from the regression \
+                head with normalized coordinate format (cx, cy, w, l, cz, h, theta, vx, vy). \
+                Shape [nb_dec, bs, num_query, 9].
+        """
+
+        x = mlvl_feats[0]
+        batch_size, num_cams = x.size(0), x.size(1)
+        input_img_h, input_img_w = input_shape[-2:]
+        masks = x.new_ones(size=(batch_size, num_cams, input_img_h, input_img_w))
+        masks[:, :, :input_img_h, :input_img_w] = 0
+        x = self.input_proj(x.flatten(0, 1))
+        x = x.view(batch_size, num_cams, *x.shape[-3:])
+        # interpolate masks to have the same spatial shape with x
+        masks = F.interpolate(masks, size=x.shape[-2:]).to(torch.bool)
+        if self.with_position:
+            if self.with_multiview:
+                # sin_embed = self.positional_encoding(masks).to(pos_embed.device)
+                # sin_embed = self.adapt_pos3d(sin_embed.flatten(0, 1)).view(x.size())
+
+                pos_embed = pos_embed + self.sin_embed.to(pos_embed.device)
+            else:
+                pos_embeds = []
+                for i in range(num_cams):
+                    xy_embed = self.positional_encoding(masks[:, i, :, :])
+                    pos_embeds.append(xy_embed.unsqueeze(1))
+                sin_embed = torch.cat(pos_embeds, 1)
+                sin_embed = self.adapt_pos3d(sin_embed.flatten(0, 1)).view(x.size())
+                pos_embed = pos_embed + sin_embed
+        else:
+            if self.with_multiview:
+                pos_embed = self.positional_encoding(masks)
+                pos_embed = self.adapt_pos3d(pos_embed.flatten(0, 1)).view(x.size())
+            else:
+                pos_embeds = []
+                for i in range(num_cams):
+                    pos_embed = self.positional_encoding(masks[:, i, :, :])
+                    pos_embeds.append(pos_embed.unsqueeze(1))
+                pos_embed = torch.cat(pos_embeds, 1)
+
+        reference_points = self.reference_points.weight
+        query_embeds = self.query_embedding(pos2posemb3d(reference_points))
+        reference_points = reference_points.unsqueeze(0).repeat(batch_size, 1, 1)  # .sigmoid()
+
+        outs_dec, _ = self.transformer(x, masks, query_embeds, pos_embed, self.reg_branches)
+        outs_dec = torch.nan_to_num(outs_dec)
+        outputs_classes = []
+        outputs_coords = []
+        for lvl in range(outs_dec.shape[0]):
+            reference = inverse_sigmoid(reference_points.clone())
+            assert reference.shape[-1] == 3
+            outputs_class = self.cls_branches[lvl](outs_dec[lvl])
+            tmp = self.reg_branches[lvl](outs_dec[lvl])
+
+            tmp[..., 0:2] += reference[..., 0:2]
+            tmp[..., 0:2] = tmp[..., 0:2].sigmoid()
+            tmp[..., 4:5] += reference[..., 2:3]
+            tmp[..., 4:5] = tmp[..., 4:5].sigmoid()
+
+            outputs_coord = tmp
+            outputs_classes.append(outputs_class)
+            outputs_coords.append(outputs_coord)
+
+        all_cls_scores = torch.stack(outputs_classes)
+        all_bbox_preds = torch.stack(outputs_coords)
+
+        all_bbox_preds[..., 0:1] = (all_bbox_preds[..., 0:1] * (self.pc_range[3] - self.pc_range[0]) + self.pc_range[0])
+        all_bbox_preds[..., 1:2] = (all_bbox_preds[..., 1:2] * (self.pc_range[4] - self.pc_range[1]) + self.pc_range[1])
+        all_bbox_preds[..., 4:5] = (all_bbox_preds[..., 4:5] * (self.pc_range[5] - self.pc_range[2]) + self.pc_range[2])
+
+        # outs = {
+        #     'all_cls_scores': all_cls_scores,
+        #     'all_bbox_preds': all_bbox_preds,
+        #     'enc_cls_scores': None,
+        #     'enc_bbox_preds': None,
+        # }
+        return all_cls_scores, all_bbox_preds
 
     def _get_target_single(self,
                            cls_score,
@@ -490,7 +589,7 @@ class PETRHead(AnchorFreeHead):
         neg_inds = sampling_result.neg_inds
 
         # label targets
-        labels = gt_bboxes.new_full((num_bboxes, ),
+        labels = gt_bboxes.new_full((num_bboxes,),
                                     self.num_classes,
                                     dtype=torch.long)
         labels[pos_inds] = gt_labels[sampling_result.pos_assigned_gt_inds]
@@ -504,7 +603,7 @@ class PETRHead(AnchorFreeHead):
         # print(gt_bboxes.size(), bbox_pred.size())
         # DETR
         bbox_targets[pos_inds] = sampling_result.pos_gt_bboxes
-        return (labels, label_weights, bbox_targets, bbox_weights, 
+        return (labels, label_weights, bbox_targets, bbox_weights,
                 pos_inds, neg_inds)
 
     def get_targets(self,
@@ -551,8 +650,8 @@ class PETRHead(AnchorFreeHead):
 
         (labels_list, label_weights_list, bbox_targets_list,
          bbox_weights_list, pos_inds_list, neg_inds_list) = multi_apply(
-             self._get_target_single, cls_scores_list, bbox_preds_list,
-             gt_labels_list, gt_bboxes_list, gt_bboxes_ignore_list)
+            self._get_target_single, cls_scores_list, bbox_preds_list,
+            gt_labels_list, gt_bboxes_list, gt_bboxes_ignore_list)
         num_total_pos = sum((inds.numel() for inds in pos_inds_list))
         num_total_neg = sum((inds.numel() for inds in neg_inds_list))
         return (labels_list, label_weights_list, bbox_targets_list,
@@ -586,7 +685,7 @@ class PETRHead(AnchorFreeHead):
         cls_scores_list = [cls_scores[i] for i in range(num_imgs)]
         bbox_preds_list = [bbox_preds[i] for i in range(num_imgs)]
         cls_reg_targets = self.get_targets(cls_scores_list, bbox_preds_list,
-                                           gt_bboxes_list, gt_labels_list, 
+                                           gt_bboxes_list, gt_labels_list,
                                            gt_bboxes_ignore_list)
         (labels_list, label_weights_list, bbox_targets_list, bbox_weights_list,
          num_total_pos, num_total_neg) = cls_reg_targets
@@ -599,7 +698,7 @@ class PETRHead(AnchorFreeHead):
         cls_scores = cls_scores.reshape(-1, self.cls_out_channels)
         # construct weighted avg_factor to match with the official DETR repo
         cls_avg_factor = num_total_pos * 1.0 + \
-            num_total_neg * self.bg_cls_weight
+                         num_total_neg * self.bg_cls_weight
         if self.sync_cls_avg_factor:
             cls_avg_factor = reduce_mean(
                 cls_scores.new_tensor([cls_avg_factor]))
@@ -620,12 +719,13 @@ class PETRHead(AnchorFreeHead):
         bbox_weights = bbox_weights * self.code_weights
 
         loss_bbox = self.loss_bbox(
-                bbox_preds[isnotnan, :10], normalized_bbox_targets[isnotnan, :10], bbox_weights[isnotnan, :10], avg_factor=num_total_pos)
+            bbox_preds[isnotnan, :10], normalized_bbox_targets[isnotnan, :10], bbox_weights[isnotnan, :10],
+            avg_factor=num_total_pos)
 
         loss_cls = torch.nan_to_num(loss_cls)
         loss_bbox = torch.nan_to_num(loss_bbox)
         return loss_cls, loss_bbox
-    
+
     @force_fp32(apply_to=('preds_dicts'))
     def loss(self,
              gt_bboxes_list,
@@ -681,7 +781,7 @@ class PETRHead(AnchorFreeHead):
 
         losses_cls, losses_bbox = multi_apply(
             self.loss_single, all_cls_scores, all_bbox_preds,
-            all_gt_bboxes_list, all_gt_labels_list, 
+            all_gt_bboxes_list, all_gt_labels_list,
             all_gt_bboxes_ignore_list)
 
         loss_dict = dict()

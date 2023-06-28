@@ -16,7 +16,7 @@ from os import path as osp
 from mmcv.runner import force_fp32, auto_fp16
 from mmdet.models import DETECTORS
 from mmdet3d.core import bbox3d2result
-from mmdet3d.core import (CameraInstance3DBoxes,LiDARInstance3DBoxes, bbox3d2result,
+from mmdet3d.core import (CameraInstance3DBoxes, LiDARInstance3DBoxes, bbox3d2result,
                           show_multi_modality_result)
 from mmdet3d.models.detectors.mvx_two_stage import MVXTwoStageDetector
 from projects.mmdet3d_plugin.models.utils.grid_mask import GridMask
@@ -43,10 +43,10 @@ class Petr3D(MVXTwoStageDetector):
                  test_cfg=None,
                  pretrained=None):
         super(Petr3D, self).__init__(pts_voxel_layer, pts_voxel_encoder,
-                             pts_middle_encoder, pts_fusion_layer,
-                             img_backbone, pts_backbone, img_neck, pts_neck,
-                             pts_bbox_head, img_roi_head, img_rpn_head,
-                             train_cfg, test_cfg, pretrained)
+                                     pts_middle_encoder, pts_fusion_layer,
+                                     img_backbone, pts_backbone, img_neck, pts_neck,
+                                     pts_bbox_head, img_roi_head, img_rpn_head,
+                                     train_cfg, test_cfg, pretrained)
         self.grid_mask = GridMask(True, True, rotate=1, offset=False, ratio=0.5, mode=1, prob=0.7)
         self.use_grid_mask = use_grid_mask
 
@@ -70,6 +70,33 @@ class Petr3D(MVXTwoStageDetector):
                     img = img.view(B * N, C, H, W)
             if self.use_grid_mask:
                 img = self.grid_mask(img)
+            img_feats = self.img_backbone(img)
+            if isinstance(img_feats, dict):
+                img_feats = list(img_feats.values())
+        else:
+            return None
+        if self.with_img_neck:
+            img_feats = self.img_neck(img_feats)
+        img_feats_reshaped = []
+        for img_feat in img_feats:
+            BN, C, H, W = img_feat.size()
+            img_feats_reshaped.append(img_feat.view(B, int(BN / B), C, H, W))
+        return img_feats_reshaped
+
+    def extract_img_feat_export(self, img):
+        """Extract features of images."""
+        # print(img[0].size())
+        if isinstance(img, list):
+            img = torch.stack(img, dim=0)
+
+        B = img.size(0)
+        if img is not None:
+            if img.dim() == 5:
+                if img.size(0) == 1 and img.size(1) != 1:
+                    img.squeeze_()
+                else:
+                    B, N, C, H, W = img.size()
+                    img = img.view(B * N, C, H, W)
             img_feats = self.img_backbone(img)
             if isinstance(img_feats, dict):
                 img_feats = list(img_feats.values())
@@ -115,7 +142,7 @@ class Petr3D(MVXTwoStageDetector):
         return losses
 
     @force_fp32(apply_to=('img', 'points'))
-    def forward(self, return_loss=True, **kwargs):
+    def forward(self, return_loss=True, img=None, pos_embed=None, **kwargs):
         """Calls either forward_train or forward_test depending on whether
         return_loss=True.
         Note this setting will change the expected inputs. When
@@ -125,10 +152,12 @@ class Petr3D(MVXTwoStageDetector):
         list[list[dict]]), with the outer list indicating test time
         augmentations.
         """
+        if torch.onnx.is_in_onnx_export():
+            return self.forward_export(img=[img], pos_embed=pos_embed, **kwargs)
         if return_loss:
-            return self.forward_train(**kwargs)
+            return self.forward_train(img=img, **kwargs)
         else:
-            return self.forward_test(**kwargs)
+            return self.forward_test(img=img, **kwargs)
 
     def forward_train(self,
                       points=None,
@@ -174,7 +203,7 @@ class Petr3D(MVXTwoStageDetector):
                                             gt_bboxes_ignore)
         losses.update(losses_pts)
         return losses
-  
+
     def forward_test(self, img_metas, img=None, **kwargs):
         for var, name in [(img_metas, 'img_metas')]:
             if not isinstance(var, list):
@@ -182,6 +211,10 @@ class Petr3D(MVXTwoStageDetector):
                     name, type(var)))
         img = [img] if img is None else img
         return self.simple_test(img_metas[0], img[0], **kwargs)
+
+    def forward_export(self, img, pos_embed, **kwargs):
+        img = [img] if img is None else img
+        return self.simple_export(pos_embed=pos_embed, img=img[0], **kwargs)
 
     def simple_test_pts(self, x, img_metas, rescale=False):
         """Test function of point cloud branch."""
@@ -193,17 +226,32 @@ class Petr3D(MVXTwoStageDetector):
             for bboxes, scores, labels in bbox_list
         ]
         return bbox_results
-    
+
+    def simple_export_pts(self, x, pos_embed=None, input_shape=None, rescale=False):
+        """Test function of point cloud branch."""
+        return self.pts_bbox_head.forward_export(x, pos_embed=pos_embed, input_shape=input_shape)
+        # bbox_list = self.pts_bbox_head.get_bboxes(
+        #     outs, img_metas, rescale=rescale)
+        # bbox_results = [
+        #     bbox3d2result(bboxes, scores, labels)
+        #     for bboxes, scores, labels in bbox_list
+        # ]
+        # return bbox_results
+
     def simple_test(self, img_metas, img=None, rescale=False):
         """Test function without augmentaiton."""
         img_feats = self.extract_feat(img=img, img_metas=img_metas)
 
         bbox_list = [dict() for i in range(len(img_metas))]
-        bbox_pts = self.simple_test_pts(
-            img_feats, img_metas, rescale=rescale)
+        bbox_pts = self.simple_test_pts(img_feats, img_metas, rescale=rescale)
         for result_dict, pts_bbox in zip(bbox_list, bbox_pts):
             result_dict['pts_bbox'] = pts_bbox
         return bbox_list
+
+    def simple_export(self, img, pos_embed, rescale=False):
+        """Test function without augmentaiton."""
+        img_feats = self.extract_img_feat_export(img=img)
+        return self.simple_export_pts(img_feats, pos_embed=pos_embed, input_shape=img.shape, rescale=rescale)
 
     def aug_test_pts(self, feats, img_metas, rescale=False):
         feats_list = []
@@ -230,4 +278,3 @@ class Petr3D(MVXTwoStageDetector):
         for result_dict, pts_bbox in zip(bbox_list, bbox_pts):
             result_dict['pts_bbox'] = pts_bbox
         return bbox_list
-    
